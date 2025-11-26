@@ -78,6 +78,14 @@ EOF
 
 echo ".app created successfully."
 
+SIGN_IDENTITY="${CROSSDESK_SIGN_IDENTITY:--}"
+
+if command -v codesign &> /dev/null; then
+    codesign --force --deep --sign "$SIGN_IDENTITY" "${APP_BUNDLE}" 2>/dev/null || {
+        echo "Warning: Code signing failed. The app may not work properly."
+    }
+fi
+
 echo "building pkg..."
 pkgbuild \
   --identifier "${IDENTIFIER}" \
@@ -90,13 +98,38 @@ mkdir -p scripts
 
 cat > scripts/postinstall <<'EOF'
 #!/bin/bash
+
+IDENTIFIER="cn.crossdesk.app"
+APP_NAME="CrossDesk"
+APP_PATH="/Applications/${APP_NAME}.app"
+
 USER_HOME=$( /usr/bin/stat -f "%Su" /dev/console )
 HOME_DIR=$( /usr/bin/dscl . -read /Users/$USER_HOME NFSHomeDirectory | awk '{print $2}' )
 
 DEST="$HOME_DIR/Library/Application Support/CrossDesk/certs"
-
 mkdir -p "$DEST"
-cp -R "/Library/Application Support/CrossDesk/certs/"* "$DEST/"
+if [ -d "/Library/Application Support/CrossDesk/certs" ]; then
+    cp -R "/Library/Application Support/CrossDesk/certs/"* "$DEST/" 2>/dev/null || true
+fi
+
+if [ -d "$APP_PATH" ]; then
+    touch "$APP_PATH"
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH" 2>/dev/null || true
+    
+    USER_ID=$(dscl . -read /Users/$USER_HOME UniqueID 2>/dev/null | awk '{print $2}')
+    
+    if [ -n "$USER_ID" ]; then
+        sleep 1
+        launchctl asuser $USER_ID open "$APP_PATH" 2>/dev/null &
+        APP_PID=$!
+        sleep 3
+        kill "$APP_PID" 2>/dev/null || pkill -f "${APP_NAME}" 2>/dev/null || true
+    fi
+    
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null &
+    sleep 1
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null &
+fi
 
 exit 0
 EOF

@@ -199,10 +199,12 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
 
   dispatch_semaphore_t sema = dispatch_semaphore_create(0);
   __block SCShareableContent *content = nil;
+  __block NSError *capture_error = nil;
 
   [SCShareableContent
       getShareableContentWithCompletionHandler:^(SCShareableContent *result, NSError *error) {
         if (error) {
+          capture_error = error;
           NSLog(@"Failed to get shareable content: %@", error);
         } else {
           content = result;
@@ -211,8 +213,15 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
       }];
   dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
+  if (capture_error) {
+    NSString *error_desc = capture_error.localizedDescription ?: @"Unknown error";
+    LOG_ERROR("Failed to get shareable content: {}", 
+              std::string([error_desc UTF8String]));
+    return 0;
+  }
+
   if (!content || content.displays.count == 0) {
-    LOG_ERROR("Failed to get display info");
+    LOG_ERROR("Failed to get display info: content is nil or no displays available");
     return 0;
   }
 
